@@ -25,9 +25,9 @@ local MAX_CPM_BLATANT = 3000
 math.randomseed(os.time())
 
 local THEME = {
-    Background = Color3.fromRGB(20, 20, 24),
-    ItemBG = Color3.fromRGB(32, 32, 38),
-    Accent = Color3.fromRGB(114, 100, 255),
+    Background = Color3.fromRGB(37, 74, 68),
+    ItemBG = Color3.fromRGB(0, 45, 43),
+    Accent = Color3.fromRGB(255, 255, 255),
     Text = Color3.fromRGB(240, 240, 240),
     SubText = Color3.fromRGB(150, 150, 160),
     Success = Color3.fromRGB(100, 255, 140),
