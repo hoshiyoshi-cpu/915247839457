@@ -2236,6 +2236,7 @@ UpdateList = function(detectedText, requiredLetter)
     local function CollectMatches(prefix, tryFallbackLengths)
         local exacts = {}
         local partials = {}
+        local fallbackWords = {}  -- Words that match suffix but not prefix
         local maxPartialLen = 0
         local limit = 100
         
@@ -2255,7 +2256,15 @@ UpdateList = function(detectedText, requiredLetter)
                 local mLen = GetMatchLength(w, prefix)
                 if mLen == #prefix then
                     table.insert(exacts, w)
-                elseif #exacts == 0 and #partials == 0 then  -- Only track partials if we have NO exact matches yet
+                else
+                    -- Store in fallback for later use if no exact matches
+                    if #fallbackWords < 50 then
+                        table.insert(fallbackWords, w)
+                    end
+                end
+                
+                -- Track partial matches for backtracking when we have NO exact matches
+                if #exacts == 0 and #partials == 0 then
                     if mLen > maxPartialLen then
                         maxPartialLen = mLen
                         partials = {w}
@@ -2271,10 +2280,20 @@ UpdateList = function(detectedText, requiredLetter)
                 if #exacts >= 200 then break end
             end
             
-            -- If we have no exact matches, clear partials if the max match length is less than prefix length
-            -- This means no words match both suffix AND have ANY matching prefix characters
+            -- If we have no exact matches AND no partial matches that actually match our prefix partially,
+            -- show fallback words (words that match suffix but don't start with our prefix)
             if #exacts == 0 and maxPartialLen < #prefix then
-                partials = {}
+                partials = {}  -- Clear partials
+                -- Use fallback words as suggestions
+                for _, w in ipairs(fallbackWords) do
+                    if #partials < 50 then
+                        table.insert(partials, w)
+                    end
+                end
+                -- Mark that we're showing fallback suggestions
+                isBacktracked = true
+                -- Use empty string for searchPrefix to show full words
+                searchPrefix = ""
             end
             
             if sortMode == "Random" and #exacts > 0 then
@@ -2292,6 +2311,12 @@ UpdateList = function(detectedText, requiredLetter)
         matches = partials
         searchPrefix = searchPrefix:sub(1, pLen)
         isBacktracked = true
+    end
+
+    -- If we're showing fallback suggestions, update the status text
+    if isBrowserActive and #exacts == 0 and #partials > 0 and searchPrefix == "" then
+        StatusText.Text = "No matches for '" .. detectedText .. "', showing all words ending with '" .. suffixMode .. "'"
+        StatusText.TextColor3 = THEME.Warning
     end
     
     if #matches > 0 then
