@@ -1665,6 +1665,9 @@ do
         end
         
         WBList.CanvasSize = UDim2.new(0,0,0, WBLayout.AbsoluteContentSize.Y)
+        
+        lastDetected = "---"
+        forceUpdateList = true
     end
 
     WBSearchBtn.MouseButton1Click:Connect(SearchWords)
@@ -2179,36 +2182,13 @@ UpdateList = function(detectedText, requiredLetter)
     local searchPrefix = detectedText
     local isBacktracked = false
     local manualSearch = false
-    local isBrowserActive = false
-
-    -- Check if word browser is open and has filters
-    local WordBrowserFrame = ScreenGui:FindFirstChild("WordBrowser")
-    if WordBrowserFrame and WordBrowserFrame.Visible then
-        local startBox = WordBrowserFrame:FindFirstChild("Starts with...")
-        local endBox = WordBrowserFrame:FindFirstChild("Ends with...")
-        local lenBox = WordBrowserFrame:FindFirstChild("Len...")
-        
-        if startBox or endBox or lenBox then
-            manualSearch = true
-            isBrowserActive = true
-            
-            -- Get browser filter values
-            local sVal = startBox and startBox.Text or ""
-            local eVal = endBox and endBox.Text or ""
-            local lVal = lenBox and tonumber(lenBox.Text) or 0
-            
-            if sVal == "Starts with..." then sVal = "" end
-            if eVal == "Ends with..." then eVal = "" end
-            
-            -- Store browser filters
-            suffixMode = eVal:lower():gsub("[%s%c]+", "")
-            lengthMode = lVal
-        end
-    end
 
     if SearchBox and SearchBox.Text ~= "" then
         searchPrefix = SearchBox.Text:lower():gsub("[%s%c]+", "")
         manualSearch = true
+        if requiredLetter and searchPrefix:sub(1,1) ~= requiredLetter:sub(1,1):lower() then
+             requiredLetter = nil
+        end
     end
 
     if not manualSearch and requiredLetter and #requiredLetter > 0 then
@@ -2232,92 +2212,125 @@ UpdateList = function(detectedText, requiredLetter)
         bucket = Words
     end
     
-    -- Store browser filter state
-    local currentSuffixMode = suffixMode
-    local currentLengthMode = lengthMode
-    local browserActive = (currentSuffixMode ~= "" or currentLengthMode > 0)
-    
-    -- FIRST ATTEMPT: Try to find words that START with the prefix (respecting browser filters if active)
-    local exacts = {}
-    local partials = {}
-    local maxPartialLen = 0
-    
-    if bucket then
-        for _, w in ipairs(bucket) do
-            if Blacklist[w] or UsedWords[w] then continue end
-            
-            -- Apply browser filters if active
-            if browserActive then
-                if currentSuffixMode ~= "" and w:sub(-#currentSuffixMode) ~= currentSuffixMode then 
-                    continue 
+    local function CollectMatches(prefix, tryFallbackLengths)
+        local exacts = {}
+        local fallbackExacts = {}
+        local partials = {}
+        local maxPartialLen = 0
+        local limit = 100
+        
+        if bucket then
+            local checkWord = function(w)
+                if Blacklist[w] or UsedWords[w] then return end
+                
+                -- Check for main list filtering (suffix/length)
+                if suffixMode ~= "" and w:sub(-#suffixMode) ~= suffixMode then return end
+                
+                local isLengthMatch = true
+                if not tryFallbackLengths and lengthMode > 0 then
+                    isLengthMatch = (#w == lengthMode)
+                elseif tryFallbackLengths and lengthMode > 0 then
+                     isLengthMatch = true
                 end
-                if currentLengthMode > 0 and #w ~= currentLengthMode then 
-                    continue 
+                
+                if not isLengthMatch then return end
+
+                local mLen = GetMatchLength(w, prefix)
+                if mLen == #prefix then
+                    table.insert(exacts, w)
+                elseif #exacts == 0 then
+                    if mLen > maxPartialLen then
+                        maxPartialLen = mLen
+                        partials = {w}
+                    elseif mLen == maxPartialLen and mLen > 0 then
+                        if #partials < 50 then table.insert(partials, w) end
+                    end
                 end
             end
 
-            -- Check if word starts with our current prefix
-            local mLen = GetMatchLength(w, searchPrefix)
-            if mLen == #searchPrefix then
-                table.insert(exacts, w)
-            elseif #exacts == 0 then  -- Only track partials if we have NO exact matches yet
-                if mLen > maxPartialLen then
-                    maxPartialLen = mLen
-                    partials = {w}
-                elseif mLen == maxPartialLen and mLen > 0 then
-                    if #partials < 50 then table.insert(partials, w) end
+            local useBinary = true
+            if prefix:find("#") or prefix:find("%*") then useBinary = false end
+            
+            if useBinary and #prefix > 0 then
+                local startIndex = BinarySearchStart(bucket, prefix)
+                
+                if startIndex ~= -1 then
+                    local count = 0
+                    for i = startIndex, #bucket do
+                        local w = bucket[i]
+                        
+                        if w:sub(1, #prefix) ~= prefix then break end
+                        
+                        checkWord(w)
+                        
+                        count = count + 1
+                        if count >= 3000 then break end
+                    end
+                end
+            else
+                local searchLimit = (sortMode == "Random") and 1000 or limit
+                for _, w in ipairs(bucket) do
+                    checkWord(w)
+                    if #exacts >= searchLimit then break end
                 end
             end
+            
+            if sortMode == "Random" and #exacts > 0 then
+                shuffleTable(exacts)
+            end
+        end
+        return exacts, partials, maxPartialLen
+    end
+
+    local exacts, partials, pLen = CollectMatches(searchPrefix, false)
+
+    if #exacts > 0 and (suffixMode ~= "" or lengthMode > 0) then
+    table.sort(exacts, function(a, b)
+        local aMatch = (suffixMode == "" or a:sub(-#suffixMode) == suffixMode)
+                    and (lengthMode == 0 or #a == lengthMode)
+        local bMatch = (suffixMode == "" or b:sub(-#suffixMode) == suffixMode)
+                    and (lengthMode == 0 or #b == lengthMode)
+        if aMatch ~= bMatch then return aMatch end
+        return #a < #b
+    end)
+end
+
+    if #exacts == 0 and lengthMode > 0 then
+        local fallbackExacts, fallbackPartials, fallbackPLen = CollectMatches(searchPrefix, true)
+        if #fallbackExacts > 0 then
+             exacts = fallbackExacts
         end
     end
-    
-    -- If we have exact matches, use them
+
     if #exacts > 0 then
         matches = exacts
-    elseif maxPartialLen > 0 then
+    elseif pLen > 0 then
         matches = partials
-        searchPrefix = searchPrefix:sub(1, maxPartialLen)
+        searchPrefix = searchPrefix:sub(1, pLen)
         isBacktracked = true
-    end
-    
-    -- SECOND ATTEMPT: If we have NO matches at all (no exacts and no partials) AND browser filters are active
-    if #matches == 0 and browserActive and not manualSearch then
-        -- Reset matches and try again WITHOUT browser filters
-        exacts = {}
-        partials = {}
-        maxPartialLen = 0
-        
-        for _, w in ipairs(bucket) do
-            if Blacklist[w] or UsedWords[w] then continue end
-            
-            -- NO browser filters this time - just check if word starts with prefix
-            local mLen = GetMatchLength(w, searchPrefix)
-            if mLen == #searchPrefix then
-                table.insert(exacts, w)
-            elseif #exacts == 0 then
-                if mLen > maxPartialLen then
-                    maxPartialLen = mLen
-                    partials = {w}
-                elseif mLen == maxPartialLen and mLen > 0 then
-                    if #partials < 50 then table.insert(partials, w) end
+    elseif requiredLetter and #requiredLetter > 0 then
+        local reqChar = requiredLetter:sub(1,1):lower()
+        if searchPrefix:sub(1,1):lower() ~= reqChar then
+            local fallbackBucket = (Buckets and Buckets[reqChar]) or Words
+            if fallbackBucket then
+                for _, w in ipairs(fallbackBucket) do
+                    if not Blacklist[w] and not UsedWords[w] then
+                         local mLen = GetMatchLength(w, requiredLetter)
+                         if mLen == #requiredLetter then
+                             table.insert(matches, w)
+                             if #matches >= 100 then break end
+                         end
+                    end
                 end
             end
-        end
-        
-        if #exacts > 0 then
-            matches = exacts
-            StatusText.Text = "No matches with filters - showing all words starting with '" .. searchPrefix .. "'"
-            StatusText.TextColor3 = THEME.Warning
-        elseif maxPartialLen > 0 then
-            matches = partials
-            searchPrefix = searchPrefix:sub(1, maxPartialLen)
-            isBacktracked = true
-            StatusText.Text = "No matches - showing closest matches"
-            StatusText.TextColor3 = THEME.Warning
+            
+            if #matches > 0 then
+                searchPrefix = requiredLetter
+                isBacktracked = true
+            end
         end
     end
     
-    -- Apply sorting
     if #matches > 0 then
         if sortMode == "Longest" then
             table.sort(matches, function(a, b) return #a > #b end)
@@ -2332,20 +2345,13 @@ UpdateList = function(detectedText, requiredLetter)
                 end
                 return sA > sB
             end)
-        elseif sortMode == "Random" then
-            shuffleTable(matches)
         end
     end
     
     local displayList = {}
     local maxDisplay = 40
+    for i = 1, math.min(maxDisplay, #matches) do table.insert(displayList, matches[i]) end
     
-    -- Take up to 40 matches
-    for i = 1, math.min(maxDisplay, #matches) do 
-        table.insert(displayList, matches[i]) 
-    end
-    
-    -- Update keyboard visualization
     if showKeyboard and KeyboardFrame.Visible then
         local colors = {
             Color3.fromRGB(100, 255, 140),
@@ -2383,19 +2389,17 @@ UpdateList = function(detectedText, requiredLetter)
         currentBestMatch = nil
     end
     
-    -- Update status text
     if isBacktracked then
         local validPart = searchPrefix
         local invalidPart = detectedText:sub(#searchPrefix + 1)
         local accentRGB = ColorToRGB(THEME.Accent)
         StatusText.Text = "No match: <font color=\"rgb(" .. accentRGB .. ")\">" .. validPart .. "</font><font color=\"rgb(255,80,80)\">" .. invalidPart .. "</font>"
         StatusText.TextColor3 = THEME.SubText
-    elseif #matches == 0 then
-        StatusText.Text = "No words found starting with '" .. searchPrefix .. "'"
-        StatusText.TextColor3 = THEME.Warning
+    elseif #exacts == 0 and lengthMode > 0 and suffixMode ~= "" then
+         StatusText.Text = "No len match (showing all)"
+         StatusText.TextColor3 = THEME.Warning
     end
 
-    -- Update the UI buttons
     for i = 1, math.max(#displayList, #ButtonCache) do
         local w = displayList[i]
         local btn = ButtonCache[i]
@@ -2825,4 +2829,3 @@ inputConn = UserInputService.InputBegan:Connect(function(input)
     if unloaded then return end
     if input.KeyCode == TOGGLE_KEY then ScreenGui.Enabled = not ScreenGui.Enabled end
 end)
-
