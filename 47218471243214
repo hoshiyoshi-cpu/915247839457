@@ -2248,6 +2248,7 @@ UpdateList = function(detectedText, requiredLetter)
     local isBacktracked = false
     local manualSearch = false
     local isBrowserActive = false
+    local showingFallback = false  -- Track if we're in fallback mode
 
     -- Check if word browser is open and has filters
     local WordBrowserFrame = ScreenGui:FindFirstChild("WordBrowser")
@@ -2304,18 +2305,19 @@ UpdateList = function(detectedText, requiredLetter)
     local prefixLen = #searchPrefix
     
     -- Cache frequently used values
-    local endings = suffixModeList  -- Your multi-ending list
+    local endings = suffixModeList
     local currentLengthMode = lengthMode
     local browserActive = (#endings > 0 or currentLengthMode > 0)
     local blacklist, usedWords = Blacklist, UsedWords
     
-    -- BINARY SEARCH OPTIMIZATION with multi-ending support
-    local function CollectMatches(list, prefix)
+    -- First attempt: Try with browser filters
+    local function CollectMatchesWithFilters(list, prefix, applyFilters)
         local exacts = {}
         local partials = {}
         local maxPartialLen = 0
         local limit = 100
-        local endingsCount = #endings
+        local endingsCount = applyFilters and #endings or 0
+        local lengthCheck = applyFilters and currentLengthMode or 0
         
         -- Use binary search for prefix matches
         local useBinary = true
@@ -2353,14 +2355,14 @@ UpdateList = function(detectedText, requiredLetter)
                     -- Skip blacklisted/used words
                     if blacklist[w] or usedWords[w] then continue end
                     
-                    -- Apply browser filters if active
-                    if browserActive then
+                    -- Apply filters if requested
+                    if applyFilters then
                         -- Length check
-                        if currentLengthMode > 0 and #w ~= currentLengthMode then
+                        if lengthCheck > 0 and #w ~= lengthCheck then
                             continue
                         end
                         
-                        -- Multi-ending check (your feature)
+                        -- Multi-ending check
                         if endingsCount > 0 then
                             local matchEnd = false
                             for j = 1, endingsCount do
@@ -2376,7 +2378,7 @@ UpdateList = function(detectedText, requiredLetter)
                         end
                     end
                     
-                    -- Word passed all filters
+                    -- Word passed all checks
                     table.insert(exacts, w)
                     
                     count = count + 1
@@ -2384,14 +2386,14 @@ UpdateList = function(detectedText, requiredLetter)
                 end
             end
         else
-            -- Fallback to linear scan (for censored words)
+            -- Fallback to linear scan
             local searchLimit = (sortMode == "Random") and 1000 or limit
             for _, w in ipairs(list) do
                 if blacklist[w] or usedWords[w] then continue end
                 
-                -- Apply browser filters if active
-                if browserActive then
-                    if currentLengthMode > 0 and #w ~= currentLengthMode then
+                -- Apply filters if requested
+                if applyFilters then
+                    if lengthCheck > 0 and #w ~= lengthCheck then
                         continue
                     end
                     
@@ -2434,26 +2436,13 @@ UpdateList = function(detectedText, requiredLetter)
         return exacts, partials, maxPartialLen
     end
 
-    -- Collect matches (single pass with multi-ending support)
-    exacts, partials, maxPartialLen = CollectMatches(bucket, searchPrefix)
+    -- TRY WITH FILTERS FIRST
+    exacts, partials, maxPartialLen = CollectMatchesWithFilters(bucket, searchPrefix, browserActive)
 
-    -- If no exacts with browser filters, try without filters (but still respect prefix)
+    -- IF NO RESULTS WITH FILTERS AND BROWSER IS ACTIVE, TRY WITHOUT FILTERS (FALLBACK)
     if #exacts == 0 and browserActive then
-        -- Store that we're in "fallback mode" for status message
-        isBrowserActive = false
-        browserActive = false
-        endings = {}  -- Temporarily disable endings
-        currentLengthMode = 0  -- Temporarily disable length mode
-        
-        exacts, partials, maxPartialLen = CollectMatches(bucket, searchPrefix)
-        
-        -- Restore for next time
-        endings = suffixModeList
-        currentLengthMode = lengthMode
-        browserActive = (#endings > 0 or currentLengthMode > 0)
-        
-        StatusText.Text = "No matches with filter - showing all"
-        StatusText.TextColor3 = THEME.Warning
+        exacts, partials, maxPartialLen = CollectMatchesWithFilters(bucket, searchPrefix, false)
+        showingFallback = true  -- Mark that we're showing fallback results
     end
 
     -- Determine final matches
@@ -2494,8 +2483,11 @@ UpdateList = function(detectedText, requiredLetter)
         currentBestMatch = nil
     end
     
-    -- Update status text
-    if isBacktracked then
+    -- Update status text - SHOW FALLBACK WARNING IF NEEDED
+    if showingFallback then
+        StatusText.Text = "No matches with filter - showing all words"
+        StatusText.TextColor3 = THEME.Warning
+    elseif isBacktracked then
         local validPart = searchPrefix
         local invalidPart = detectedText:sub(#searchPrefix + 1)
         local accentRGB = ColorToRGB(THEME.Accent)
@@ -2547,8 +2539,8 @@ UpdateList = function(detectedText, requiredLetter)
                 btn.Parent = ScrollList
                 table.insert(ButtonCache, btn)
                 
-                -- Add multi-ending color indicator (your feature)
-                if #suffixModeList > 1 then
+                -- Add multi-ending color indicator (only if browser is active and we have endings)
+                if #suffixModeList > 0 then
                     local indicator = Instance.new("Frame", btn)
                     indicator.Name = "EndingIndicator"
                     indicator.Size = UDim2.new(0, 3, 1, -4)
@@ -2567,12 +2559,12 @@ UpdateList = function(detectedText, requiredLetter)
             
             ButtonData[btn] = {word = w, detected = detectedText}
             
-            -- Update multi-ending color indicator
-            if #suffixModeList > 1 then
+            -- Update multi-ending color indicator (show even in fallback mode)
+            if #suffixModeList > 0 then
                 local indicator = btn:FindFirstChild("EndingIndicator")
                 if indicator then
                     indicator.Visible = false
-                    -- Find which ending this word matches
+                    -- Find which ending this word matches (if any)
                     for j, ending in ipairs(suffixModeList) do
                         if #w >= #ending and w:sub(-#ending) == ending then
                             indicator.Visible = true
