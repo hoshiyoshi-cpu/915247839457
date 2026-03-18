@@ -2255,7 +2255,7 @@ UpdateList = function(detectedText, requiredLetter)
                 local mLen = GetMatchLength(w, prefix)
                 if mLen == #prefix then
                     table.insert(exacts, w)
-                elseif #exacts == 0 then
+                elseif #exacts == 0 and #partials == 0 then  -- Only track partials if we have NO exact matches yet
                     if mLen > maxPartialLen then
                         maxPartialLen = mLen
                         partials = {w}
@@ -2265,10 +2265,16 @@ UpdateList = function(detectedText, requiredLetter)
                 end
             end
 
-            -- Search through ALL words in bucket, not just those starting with prefix
+            -- Search through ALL words in bucket
             for _, w in ipairs(bucket) do
                 checkWord(w)
                 if #exacts >= 200 then break end
+            end
+            
+            -- If we have no exact matches, clear partials if the max match length is less than prefix length
+            -- This means no words match both suffix AND have ANY matching prefix characters
+            if #exacts == 0 and maxPartialLen < #prefix then
+                partials = {}
             end
             
             if sortMode == "Random" and #exacts > 0 then
