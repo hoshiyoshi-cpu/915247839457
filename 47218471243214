@@ -2303,6 +2303,31 @@ end
         end
     end
 
+    -- >>> FIX: Pad list with shortest prefix matches if under 40 results <
+    if (suffixMode ~= "" or lengthMode > 0) and #exacts < 40 then
+        local alreadyIn = {}
+        for _, w in ipairs(exacts) do alreadyIn[w] = true end
+
+        local padding = {}
+        local startIndex = BinarySearchStart(bucket, searchPrefix)
+        if startIndex ~= -1 then
+            for i = startIndex, #bucket do
+                local w = bucket[i]
+                if w:sub(1, #searchPrefix) ~= searchPrefix then break end
+                if not Blacklist[w] and not UsedWords[w] and not alreadyIn[w] then
+                    table.insert(padding, w)
+                end
+            end
+        end
+
+        table.sort(padding, function(a, b) return #a < #b end)
+
+        for _, w in ipairs(padding) do
+            if #exacts >= 40 then break end
+            table.insert(exacts, w)
+        end
+    end
+
     if #exacts > 0 then
         matches = exacts
     elseif pLen > 0 then
