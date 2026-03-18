@@ -88,6 +88,7 @@ local useHumanization = Config.Humanize
 local useFingerModel = Config.FingerModel
 local sortMode = Config.SortMode
 local suffixMode = Config.SuffixMode or ""
+local suffixModeList = {} 
 local lengthMode = Config.LengthMode or 0
 local autoPlay = Config.AutoPlay
 local autoJoin = Config.AutoJoin
@@ -1610,8 +1611,10 @@ local function SearchWords()
     end
     
     -- Store for main list (keep first one for backward compatibility)
-    suffixMode = endings[1] or ""
+    suffixMode = eVal[1] or ""
     Config.SuffixMode = suffixMode
+    
+    suffixModeList = endings
     
     lengthMode = lVal or 0
     Config.LengthMode = lengthMode
@@ -2303,21 +2306,9 @@ local function CollectMatches(prefix, tryFallbackLengths)
     local partials = {}
     local maxPartialLen = 0
     
-    -- Store browser filter state for this check
-    local currentSuffixMode = suffixMode
+    -- Use the pre-parsed endings list
+    local endings = suffixModeList
     local currentLengthMode = lengthMode
-    
-    -- Parse multiple endings from suffixMode
-    local endings = {}
-    if currentSuffixMode ~= "" then
-        for match in currentSuffixMode:gmatch("[^,%s]+") do
-            local clean = match:lower():gsub("[%s%c]+", "")
-            if #clean > 0 then
-                table.insert(endings, clean)
-            end
-        end
-    end
-    
     local browserActive = (#endings > 0 or currentLengthMode > 0)
     
     if bucket then
