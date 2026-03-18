@@ -2358,20 +2358,47 @@ end
     end
     
     if #matches > 0 then
-        if sortMode == "Longest" then
-            table.sort(matches, function(a, b) return #a > #b end)
-        elseif sortMode == "Shortest" then
-            table.sort(matches, function(a, b) return #a < #b end)
-        elseif sortMode == "Killer" then
-            table.sort(matches, function(a, b)
-                local sA = GetKillerScore(a)
-                local sB = GetKillerScore(b)
-                if sA == sB then
-                    return #a < #b
-                end
-                return sA > sB
-            end)
+        -- >>> FIX: Sort filtered and padding separately to keep filtered on top <
+        local filteredCount = 0
+        for _, w in ipairs(matches) do
+            local isFiltered = (suffixMode == "" or w:sub(-#suffixMode) == suffixMode)
+                            and (lengthMode == 0 or #w == lengthMode)
+            if isFiltered then filteredCount = filteredCount + 1 end
         end
+
+        local filtered = {}
+        local padding = {}
+        for _, w in ipairs(matches) do
+            local isFiltered = (suffixMode == "" or w:sub(-#suffixMode) == suffixMode)
+                            and (lengthMode == 0 or #w == lengthMode)
+            if isFiltered then
+                table.insert(filtered, w)
+            else
+                table.insert(padding, w)
+            end
+        end
+
+        local function sortGroup(t)
+            if sortMode == "Longest" then
+                table.sort(t, function(a, b) return #a > #b end)
+            elseif sortMode == "Shortest" or sortMode == "Random" then
+                table.sort(t, function(a, b) return #a < #b end)
+            elseif sortMode == "Killer" then
+                table.sort(t, function(a, b)
+                    local sA = GetKillerScore(a)
+                    local sB = GetKillerScore(b)
+                    if sA == sB then return #a < #b end
+                    return sA > sB
+                end)
+            end
+        end
+
+        sortGroup(filtered)
+        sortGroup(padding)
+
+        matches = {}
+        for _, w in ipairs(filtered) do table.insert(matches, w) end
+        for _, w in ipairs(padding) do table.insert(matches, w) end
     end
     
     local displayList = {}
