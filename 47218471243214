@@ -2248,7 +2248,6 @@ UpdateList = function(detectedText, requiredLetter)
     local isBacktracked = false
     local manualSearch = false
     local isBrowserActive = false
-    local showingFallback = false  -- Track if we're in fallback mode
 
     -- Check if word browser is open and has filters
     local WordBrowserFrame = ScreenGui:FindFirstChild("WordBrowser")
@@ -2260,15 +2259,25 @@ UpdateList = function(detectedText, requiredLetter)
         if startBox or endBox or lenBox then
             manualSearch = true
             isBrowserActive = true
+            
+            -- Get browser filter values
+            local sVal = startBox and startBox.Text or ""
+            local eVal = endBox and endBox.Text or ""
+            local lVal = lenBox and tonumber(lenBox.Text) or 0
+            
+            if sVal == "Starts with..." then sVal = "" end
+            if eVal == "Ends with..." then eVal = "" end
+            
+            -- Store browser filters
+            suffixMode = eVal:lower():gsub("[%s%c]+", "")
+            lengthMode = lVal
+            -- Don't override searchPrefix with startsWith here - let it use detectedText
         end
     end
 
     if SearchBox and SearchBox.Text ~= "" then
         searchPrefix = SearchBox.Text:lower():gsub("[%s%c]+", "")
         manualSearch = true
-        if requiredLetter and searchPrefix:sub(1,1) ~= requiredLetter:sub(1,1):lower() then
-             requiredLetter = nil
-        end
     end
 
     if not manualSearch and requiredLetter and #requiredLetter > 0 then
@@ -2291,170 +2300,112 @@ UpdateList = function(detectedText, requiredLetter)
     else
         bucket = Words
     end
-
-    -- Early exit if no bucket
-    if not bucket or #bucket == 0 then
-        for _, btn in ipairs(ButtonCache) do btn.Visible = false end
-        ScrollList.CanvasSize = UDim2.new(0,0,0,0)
-        return
-    end
     
+local function CollectMatches(prefix, tryFallbackLengths)
     local exacts = {}
     local partials = {}
     local maxPartialLen = 0
-    local prefixLen = #searchPrefix
     
-    -- Cache frequently used values
-    local endings = suffixModeList
+    -- Store browser filter state for this check
+    local currentSuffixMode = suffixMode
     local currentLengthMode = lengthMode
-    local browserActive = (#endings > 0 or currentLengthMode > 0)
-    local blacklist, usedWords = Blacklist, UsedWords
     
-    -- First attempt: Try with browser filters
-    local function CollectMatchesWithFilters(list, prefix, applyFilters)
-        local exacts = {}
-        local partials = {}
-        local maxPartialLen = 0
-        local limit = 100
-        local endingsCount = applyFilters and #endings or 0
-        local lengthCheck = applyFilters and currentLengthMode or 0
-        
-        -- Use binary search for prefix matches
-        local useBinary = true
-        if prefix:find("#") or prefix:find("%*") then useBinary = false end
-        
-        if useBinary and #prefix > 0 then
-            -- Binary search to find start of prefix matches
-            local left, right = 1, #list
-            local startIndex = -1
+    -- Parse multiple endings from suffixMode
+    local endings = {}
+    if currentSuffixMode ~= "" then
+        for match in currentSuffixMode:gmatch("[^,%s]+") do
+            local clean = match:lower():gsub("[%s%c]+", "")
+            if #clean > 0 then
+                table.insert(endings, clean)
+            end
+        end
+    end
+    
+    local browserActive = (#endings > 0 or currentLengthMode > 0)
+    
+    if bucket then
+        local checkWord = function(w, applyFilters)
+            if Blacklist[w] or UsedWords[w] then return end
             
-            while left <= right do
-                local mid = math.floor((left + right) / 2)
-                local word = list[mid]
-                local sub = word:sub(1, #prefix)
+            -- Apply browser filters if requested
+            if applyFilters and browserActive then
+                -- Check if word ends with ANY of the specified endings
+                if #endings > 0 then
+                    local matchEnd = false
+                    for _, ending in ipairs(endings) do
+                        if w:sub(-#ending) == ending then
+                            matchEnd = true
+                            break
+                        end
+                    end
+                    if not matchEnd then return end
+                end
                 
-                if sub == prefix then
-                    startIndex = mid
-                    right = mid - 1
-                elseif sub < prefix then
-                    left = mid + 1
-                else
-                    right = mid - 1
+                if currentLengthMode > 0 and #w ~= currentLengthMode then 
+                    return 
                 end
             end
-            
-            -- Scan forward from start index until prefix no longer matches
-            if startIndex ~= -1 then
-                local count = 0
-                for i = startIndex, #list do
-                    local w = list[i]
-                    
-                    -- Early break when words no longer match prefix
-                    if w:sub(1, #prefix) ~= prefix then break end
-                    
-                    -- Skip blacklisted/used words
-                    if blacklist[w] or usedWords[w] then continue end
-                    
-                    -- Apply filters if requested
-                    if applyFilters then
-                        -- Length check
-                        if lengthCheck > 0 and #w ~= lengthCheck then
-                            continue
-                        end
-                        
-                        -- Multi-ending check
-                        if endingsCount > 0 then
-                            local matchEnd = false
-                            for j = 1, endingsCount do
-                                local ending = endings[j]
-                                if #w >= #ending and w:sub(-#ending) == ending then
-                                    matchEnd = true
-                                    break
-                                end
-                            end
-                            if not matchEnd then
-                                continue
-                            end
-                        end
-                    end
-                    
-                    -- Word passed all checks
-                    table.insert(exacts, w)
-                    
-                    count = count + 1
-                    if count >= 3000 then break end
+
+            -- Check if word starts with our current prefix
+            local mLen = GetMatchLength(w, prefix)
+            if mLen == #prefix then
+                table.insert(exacts, w)
+            elseif #exacts == 0 then  -- Only track partials if we have NO exact matches yet
+                if mLen > maxPartialLen then
+                    maxPartialLen = mLen
+                    partials = {w}
+                elseif mLen == maxPartialLen and mLen > 0 then
+                    if #partials < 50 then table.insert(partials, w) end
                 end
             end
-        else
-            -- Fallback to linear scan
-            local searchLimit = (sortMode == "Random") and 1000 or limit
-            for _, w in ipairs(list) do
-                if blacklist[w] or usedWords[w] then continue end
-                
-                -- Apply filters if requested
-                if applyFilters then
-                    if lengthCheck > 0 and #w ~= lengthCheck then
-                        continue
-                    end
-                    
-                    if endingsCount > 0 then
-                        local matchEnd = false
-                        for j = 1, endingsCount do
-                            local ending = endings[j]
-                            if #w >= #ending and w:sub(-#ending) == ending then
-                                matchEnd = true
-                                break
-                            end
-                        end
-                        if not matchEnd then
-                            continue
-                        end
-                    end
-                end
-                
-                local mLen = GetMatchLength(w, prefix)
-                if mLen == #prefix then
-                    table.insert(exacts, w)
-                elseif #exacts == 0 then
-                    if mLen > maxPartialLen then
-                        maxPartialLen = mLen
-                        partials = {w}
-                    elseif mLen == maxPartialLen and mLen > 0 then
-                        if #partials < 50 then table.insert(partials, w) end
-                    end
-                end
-                
-                if #exacts >= searchLimit then break end
+        end
+
+        -- First try: with browser filters (if browser is active)
+        if browserActive then
+            for _, w in ipairs(bucket) do
+                checkWord(w, true)  -- Pass true to apply filters
+                if #exacts >= 200 then break end
             end
         end
         
-        -- Shuffle if random mode
+        -- If we got no matches with browser filters, try WITHOUT filters
+        if #exacts == 0 and browserActive then
+            exacts = {}
+            partials = {}
+            maxPartialLen = 0
+            
+            for _, w in ipairs(bucket) do
+                checkWord(w, false)  -- Pass false to skip filters
+                if #exacts >= 200 then break end
+            end
+            
+            -- Update status to show we're ignoring browser filters
+            StatusText.Text = "No matches with filter - showing all"
+            StatusText.TextColor3 = THEME.Warning
+        end
+        
+        -- If we still have no exact matches, clear partials if max match length < prefix length
+        if #exacts == 0 and maxPartialLen < #prefix then
+            partials = {}
+        end
+        
         if sortMode == "Random" and #exacts > 0 then
             shuffleTable(exacts)
         end
-        
-        return exacts, partials, maxPartialLen
     end
+    return exacts, partials, maxPartialLen
+end
 
-    -- TRY WITH FILTERS FIRST
-    exacts, partials, maxPartialLen = CollectMatchesWithFilters(bucket, searchPrefix, browserActive)
+    local exacts, partials, pLen = CollectMatches(searchPrefix, false)
 
-    -- IF NO RESULTS WITH FILTERS AND BROWSER IS ACTIVE, TRY WITHOUT FILTERS (FALLBACK)
-    if #exacts == 0 and browserActive then
-        exacts, partials, maxPartialLen = CollectMatchesWithFilters(bucket, searchPrefix, false)
-        showingFallback = true  -- Mark that we're showing fallback results
-    end
-
-    -- Determine final matches
     if #exacts > 0 then
         matches = exacts
-    elseif maxPartialLen > 0 then
+    elseif pLen > 0 then
         matches = partials
-        searchPrefix = searchPrefix:sub(1, maxPartialLen)
+        searchPrefix = searchPrefix:sub(1, pLen)
         isBacktracked = true
     end
     
-    -- Sort matches
     if #matches > 0 then
         if sortMode == "Longest" then
             table.sort(matches, function(a, b) return #a > #b end)
@@ -2472,35 +2423,60 @@ UpdateList = function(detectedText, requiredLetter)
         end
     end
     
-    -- Update display (limit to 40 words)
+    local displayList = {}
     local maxDisplay = 40
-    local displayCount = math.min(maxDisplay, #matches)
+    for i = 1, math.min(maxDisplay, #matches) do table.insert(displayList, matches[i]) end
     
-    -- Update current best match
+    if showKeyboard and KeyboardFrame.Visible then
+        local colors = {
+            Color3.fromRGB(100, 255, 140),
+            Color3.fromRGB(255, 180, 200),
+            Color3.fromRGB(100, 200, 255)
+        }
+        
+        local targetKeys = {}
+
+        for i = 1, math.min(3, #displayList) do
+            local w = displayList[i]
+            local nextChar = w:sub(#searchPrefix + 1, #searchPrefix + 1)
+            if nextChar and nextChar ~= "" then
+                local char = nextChar:lower()
+                if not targetKeys[char] then
+                    targetKeys[char] = i
+                end
+            end
+        end
+
+        for char, k in pairs(Keys) do
+            local priority = targetKeys[char]
+            if priority then
+                k.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+                Tween(k, {BackgroundColor3 = colors[priority]}, 0.3)
+            else
+                Tween(k, {BackgroundColor3 = THEME.ItemBG}, 0.2)
+            end
+        end
+    end
+
     if #matches > 0 and not isBacktracked then
         currentBestMatch = matches[1]
     else
         currentBestMatch = nil
     end
     
-    -- Update status text - SHOW FALLBACK WARNING IF NEEDED
-    if showingFallback then
-        StatusText.Text = "No matches with filter - showing all words"
-        StatusText.TextColor3 = THEME.Warning
-    elseif isBacktracked then
+    if isBacktracked then
         local validPart = searchPrefix
         local invalidPart = detectedText:sub(#searchPrefix + 1)
         local accentRGB = ColorToRGB(THEME.Accent)
         StatusText.Text = "No match: <font color=\"rgb(" .. accentRGB .. ")\">" .. validPart .. "</font><font color=\"rgb(255,80,80)\">" .. invalidPart .. "</font>"
         StatusText.TextColor3 = THEME.SubText
-    elseif #exacts == 0 and lengthMode > 0 and #endings > 0 then
+    elseif #exacts == 0 and lengthMode > 0 and suffixMode ~= "" then
          StatusText.Text = "No len match (showing all)"
          StatusText.TextColor3 = THEME.Warning
     end
 
-    -- Update buttons with multi-ending color indicators
-    for i = 1, math.max(displayCount, #ButtonCache) do
-        local w = matches[i]
+    for i = 1, math.max(#displayList, #ButtonCache) do
+        local w = displayList[i]
         local btn = ButtonCache[i]
 
         if w then
@@ -2538,17 +2514,6 @@ UpdateList = function(detectedText, requiredLetter)
                 
                 btn.Parent = ScrollList
                 table.insert(ButtonCache, btn)
-                
-                -- Add multi-ending color indicator (only if browser is active and we have endings)
-                if #suffixModeList > 0 then
-                    local indicator = Instance.new("Frame", btn)
-                    indicator.Name = "EndingIndicator"
-                    indicator.Size = UDim2.new(0, 3, 1, -4)
-                    indicator.Position = UDim2.new(1, -8, 0, 2)
-                    indicator.BackgroundColor3 = Color3.fromHSV(0.3, 0.8, 0.8)
-                    indicator.Visible = false
-                    Instance.new("UICorner", indicator).CornerRadius = UDim.new(1, 0)
-                end
             else
                 lbl = btn:FindFirstChild("Label")
                 btn.Visible = true
@@ -2559,50 +2524,26 @@ UpdateList = function(detectedText, requiredLetter)
             
             ButtonData[btn] = {word = w, detected = detectedText}
             
-            -- Update multi-ending color indicator (show even in fallback mode)
-            if #suffixModeList > 0 then
-                local indicator = btn:FindFirstChild("EndingIndicator")
-                if indicator then
-                    indicator.Visible = false
-                    -- Find which ending this word matches (if any)
-                    for j, ending in ipairs(suffixModeList) do
-                        if #w >= #ending and w:sub(-#ending) == ending then
-                            indicator.Visible = true
-                            indicator.BackgroundColor3 = Color3.fromHSV((j * 0.15) % 1, 0.8, 0.8)
-                            break
-                        end
-                    end
-                end
-            end
+            local accentRGB = ColorToRGB(THEME.Accent)
             
-            -- Color coding for top 3 words
-            local color1, color2
-            if i == 1 then
-                color1 = "100,255,140"
-                color2 = ColorToRGB(THEME.Text)
-            elseif i == 2 then
-                color1 = "255,180,200"
-                color2 = ColorToRGB(THEME.Text)
-            elseif i == 3 then
-                color1 = "100,200,255"
-                color2 = ColorToRGB(THEME.Text)
-            else
-                color1 = ColorToRGB(THEME.Accent)
-                color2 = ColorToRGB(THEME.Text)
+            if i == 1 then accentRGB = "100,255,140"
+            elseif i == 2 then accentRGB = "255,180,200"
+            elseif i == 3 then accentRGB = "100,200,255"
             end
+
+            local textRGB = ColorToRGB(THEME.Text)
             
-            -- Build display text
             local displayText = ""
             if isBacktracked then
                 local prefix = w:sub(1, #searchPrefix)
                 local suffix = w:sub(#searchPrefix + 1)
-                displayText = "<font color=\"rgb(" .. color1 .. ")\">" .. prefix .. "</font>"
-                    .. "<font color=\"rgb(" .. color2 .. ")\">" .. suffix .. "</font>"
+                displayText = "<font color=\"rgb(" .. accentRGB .. ")\">" .. prefix .. "</font>"
+                    .. "<font color=\"rgb(" .. textRGB .. ")\">" .. suffix .. "</font>"
             else
                 local prefix = w:sub(1, #detectedText)
                 local suffix = w:sub(#detectedText + 1)
-                displayText = "<font color=\"rgb(" .. color1 .. ")\">" .. prefix .. "</font>"
-                    .. "<font color=\"rgb(" .. color2 .. ")\">" .. suffix .. "</font>"
+                displayText = "<font color=\"rgb(" .. accentRGB .. ")\">" .. prefix .. "</font>"
+                    .. "<font color=\"rgb(" .. textRGB .. ")\">" .. suffix .. "</font>"
             end
             
             if lbl then lbl.Text = displayText end
@@ -2610,36 +2551,6 @@ UpdateList = function(detectedText, requiredLetter)
             if btn then
                 btn.Visible = false
                 ButtonData[btn] = nil
-            end
-        end
-    end
-    
-    -- Update keyboard visualization (only if visible)
-    if showKeyboard and KeyboardFrame.Visible and #matches > 0 then
-        local colors = {
-            Color3.fromRGB(100, 255, 140),
-            Color3.fromRGB(255, 180, 200),
-            Color3.fromRGB(100, 200, 255)
-        }
-        
-        local targetKeys = {}
-        for i = 1, math.min(3, #matches) do
-            local w = matches[i]
-            local nextChar = w:sub(#searchPrefix + 1, #searchPrefix + 1)
-            if nextChar and nextChar ~= "" then
-                local char = nextChar:lower()
-                if not targetKeys[char] then
-                    targetKeys[char] = i
-                end
-            end
-        end
-
-        for char, k in pairs(Keys) do
-            local priority = targetKeys[char]
-            if priority then
-                Tween(k, {BackgroundColor3 = colors[priority]}, 0.3)
-            else
-                Tween(k, {BackgroundColor3 = THEME.ItemBG}, 0.2)
             end
         end
     end
