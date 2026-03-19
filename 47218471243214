@@ -104,6 +104,7 @@ local lastTypingStart = 0
 local runConn = nil
 local inputConn = nil
 local logConn = nil
+local lastManualInput = ""
 local unloaded = false
 local isMyTurnLogDetected = false
 local logRequiredLetters = ""
@@ -2822,6 +2823,25 @@ runConn = RunService.RenderStepped:Connect(function()
             StatusText.Text = "New Round - Words Reset"
             StatusText.TextColor3 = THEME.Success
         end
+
+-- >>> FIX: Track manually typed words by watching word clear <
+        if isMyTurn and not isTyping then
+            local textBox = GetGameTextBox()
+            if textBox then
+                local typed = textBox.Text:lower():gsub("[%s%c]+", "")
+                if #typed > 0 then
+                    lastManualInput = typed
+                end
+            end
+        end
+
+        -- if the word on screen just cleared, the last input was accepted
+        if lastManualInput ~= "" and detected == "" and lastDetected ~= "" then
+            UsedWords[lastManualInput] = true
+            lastManualInput = ""
+            forceUpdateList = true
+        end
+        
         lastTypeVisible = typeVisible
         if censored then
             if StatusText.Text ~= "Word is Censored" then
