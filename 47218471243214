@@ -1553,23 +1553,20 @@ do
     WBClose.BackgroundTransparency = 1
     WBClose.MouseButton1Click:Connect(function() WordBrowserFrame.Visible = false end)
 
-    local WBStartBox = Instance.new("TextBox", WordBrowserFrame)
-    WBStartBox.Font = Enum.Font.Gotham
-    WBStartBox.TextSize = 12
-    WBStartBox.BackgroundColor3 = THEME.ItemBG
-    WBStartBox.Size = UDim2.new(0.4, 0, 0, 24)
-    WBStartBox.Position = UDim2.new(0, 10, 0, 45)
-    Instance.new("UICorner", WBStartBox).CornerRadius = UDim.new(0, 4)
-    SetupPhantomBox(WBStartBox, "Starts with...")
+    local WBStartBox = nil
 
     local WBEndBox = Instance.new("TextBox", WordBrowserFrame)
     WBEndBox.Font = Enum.Font.Gotham
     WBEndBox.TextSize = 12
     WBEndBox.BackgroundColor3 = THEME.ItemBG
-    WBEndBox.Size = UDim2.new(0.4, 0, 0, 24)
-    WBEndBox.Position = UDim2.new(0.45, 0, 0, 45)
+    WBEndBox.Size = UDim2.new(0.85, 0, 0, 24)
+    WBEndBox.Position = UDim2.new(0, 10, 0, 45)
     Instance.new("UICorner", WBEndBox).CornerRadius = UDim.new(0, 4)
-    SetupPhantomBox(WBEndBox, "Ends with...")
+    WBEndBox.PlaceholderText = "Ends with... (comma separate for multiple)"
+    WBEndBox.PlaceholderColor3 = THEME.SubText
+    WBEndBox.TextColor3 = THEME.Text
+    WBEndBox.Text = ""
+    WBEndBox.ClearTextOnFocus = false
 
     local WBLengthBox = Instance.new("TextBox", WordBrowserFrame)
     WBLengthBox.Font = Enum.Font.Gotham
@@ -1607,7 +1604,7 @@ do
             if c:IsA("GuiObject") and c.Name ~= "UIListLayout" then c:Destroy() end
         end
         
-        local sVal = WBStartBox.Text
+        local sVal = ""
         local eVal = WBEndBox.Text
         local lVal = tonumber(WBLengthBox.Text)
         
@@ -1714,7 +1711,6 @@ do
     end
 
     WBSearchBtn.MouseButton1Click:Connect(SearchWords)
-    WBStartBox.FocusLost:Connect(function(enter) if enter then SearchWords() end end)
     WBEndBox.FocusLost:Connect(function(enter) if enter then SearchWords() end end)
     WBLengthBox.FocusLost:Connect(function(enter) if enter then SearchWords() end end)
 
