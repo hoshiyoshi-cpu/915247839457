@@ -1095,6 +1095,23 @@ end)
 RiskyBtn.TextColor3 = riskyMistakes and Color3.fromRGB(255, 80, 80) or THEME.SubText
 RiskyBtn.Size = UDim2.new(0, 130, 0, 24)
 
+local ResetUsedBtn = Instance.new("TextButton", TogglesFrame)
+ResetUsedBtn.Text = "Reset Used Words"
+ResetUsedBtn.Font = Enum.Font.GothamMedium
+ResetUsedBtn.TextSize = 11
+ResetUsedBtn.TextColor3 = THEME.Warning
+ResetUsedBtn.BackgroundColor3 = THEME.Background
+ResetUsedBtn.Size = UDim2.new(0, 265, 0, 24)
+ResetUsedBtn.Position = UDim2.new(0, 15, 0, 145)
+Instance.new("UICorner", ResetUsedBtn).CornerRadius = UDim.new(0, 4)
+
+ResetUsedBtn.MouseButton1Click:Connect(function()
+    UsedWords = {}
+    lastManualInput = ""
+    forceUpdateList = true
+    StatusText.Text = "Used Words Reset"
+    StatusText.TextColor3 = THEME.Success
+end)
 local ManageWordsBtn = Instance.new("TextButton", TogglesFrame)
 ManageWordsBtn.Text = "Manage Custom Words"
 ManageWordsBtn.Font = Enum.Font.GothamMedium
@@ -1102,7 +1119,7 @@ ManageWordsBtn.TextSize = 11
 ManageWordsBtn.TextColor3 = THEME.Accent
 ManageWordsBtn.BackgroundColor3 = THEME.Background
 ManageWordsBtn.Size = UDim2.new(0, 130, 0, 24)
-ManageWordsBtn.Position = UDim2.new(0, 15, 0, 145)
+ManageWordsBtn.Position = UDim2.new(0, 15, 0, 175)
 Instance.new("UICorner", ManageWordsBtn).CornerRadius = UDim.new(0, 4)
 
 local WordBrowserBtn = Instance.new("TextButton", TogglesFrame)
