@@ -2862,18 +2862,13 @@ runConn = RunService.RenderStepped:Connect(function()
         lastTypeVisible = typeVisible
         if censored then
             if StatusText.Text ~= "Word is Censored" then
+                if lastManualInput ~= "" then
+                    UsedWords[lastManualInput] = true
+                    lastManualInput = ""
+                    forceUpdateList = true
+                end
                 StatusText.Text = "Word is Censored"
                 StatusText.TextColor3 = THEME.Warning
-                -- >>> FIX: Track censored word from textbox <
-                local textBox = UserInputService:GetFocusedTextBox()
-                if textBox and textBox.Text ~= "" then
-                    lastManualInput = textBox.Text:lower():gsub("[%s%c]+", "")
-                    StatusText.Text = "Censored tracked: " .. lastManualInput
-                elseif lastManualInput ~= "" then
-                    StatusText.Text = "Censored using last: " .. lastManualInput
-                else
-                    StatusText.Text = "Censored: nothing tracked"
-                end
                 Tween(StatusDot, {BackgroundColor3 = THEME.Warning})
                 
                 for _, btn in ipairs(ButtonCache) do btn.Visible = false end
