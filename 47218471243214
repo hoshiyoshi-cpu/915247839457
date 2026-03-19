@@ -121,7 +121,7 @@ local lastAutoJoinCheck = 0
 local lastWordCheck = 0
 local cachedDetected = ""
 local cachedCensored = false
-local LOGIC_RATE = 0.5
+local LOGIC_RATE = 0.05
 local AUTO_JOIN_RATE = 1.0
 local UpdateList
 local ButtonCache = {}
