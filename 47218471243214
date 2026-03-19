@@ -2825,14 +2825,19 @@ runConn = RunService.RenderStepped:Connect(function()
             StatusText.TextColor3 = THEME.Success
         end
 
--- >>> FIX: Track manually typed words by watching word clear <
+-- >>> FIX: Track manually typed words <
         if isMyTurn and not isTyping then
             local textBox = GetGameTextBox()
             if textBox then
                 local typed = textBox.Text:lower():gsub("[%s%c]+", "")
                 if #typed > 0 then
                     lastManualInput = typed
+                    StatusText.Text = "Tracking: " .. typed
+                    StatusText.TextColor3 = THEME.Warning
                 end
+            else
+                StatusText.Text = "No textbox found"
+                StatusText.TextColor3 = Color3.fromRGB(255,80,80)
             end
         end
 
