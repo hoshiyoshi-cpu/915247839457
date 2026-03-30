@@ -1184,9 +1184,10 @@ local function RefreshUsedWords()
     local usedList = {}
     local blacklistedList = {}
 
-    for w, _ in pairs(UsedWords) do
-        table.insert(usedList, w)
+    for w, t in pairs(UsedWords) do
+        table.insert(usedList, {word = w, time = t})
     end
+    table.sort(usedList, function(a, b) return a.time > b.time end)
 
     for w, _ in pairs(Blacklist) do
         table.insert(blacklistedList, w)
@@ -1209,7 +1210,8 @@ local function RefreshUsedWords()
     local i = 0
     local scrollTarget = nil
 
-    for _, w in ipairs(usedList) do
+    for _, entry in ipairs(usedList) do
+        local w = entry.word
         i = i + 1
         local row = Instance.new("Frame", UWList)
         row.Size = UDim2.new(1, -6, 0, 22)
@@ -2213,7 +2215,7 @@ local function SmartType(targetWord, currentDetected, isCorrection, bypassTurn)
                     Backspace(#current)
                 end
 
-                UsedWords[targetWord] = true
+                UsedWords[targetWord] = tick()
                 isMyTurnLogDetected = false
                 task.wait(0.2)
             end
@@ -2349,7 +2351,7 @@ local function SmartType(targetWord, currentDetected, isCorrection, bypassTurn)
                     Backspace(#current)
                 end
 
-                UsedWords[targetWord] = true
+                UsedWords[targetWord] = tick()
                 isMyTurnLogDetected = false
                 task.wait(0.2)
             end
@@ -3038,7 +3040,7 @@ runConn = RunService.Heartbeat:Connect(function()
 
         -- if the word on screen just cleared, the last input was accepted
         if lastManualInput ~= "" and (detected == "" or #detected < #lastManualInput) then
-            UsedWords[lastManualInput] = true
+            UsedWords[lastManualInput] = tick()
             lastManualInput = ""
             forceUpdateList = true
         end
@@ -3048,7 +3050,7 @@ runConn = RunService.Heartbeat:Connect(function()
         if censored then
             if StatusText.Text ~= "Word is Censored" then
                 if lastManualInput ~= "" then
-                    UsedWords[lastManualInput] = true
+                    UsedWords[lastManualInput] = tick()
                     lastManualInput = ""
                     forceUpdateList = true
                 end
