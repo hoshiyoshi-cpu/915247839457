@@ -3177,9 +3177,25 @@ inputConn = UserInputService.InputBegan:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.Return then
         local textBox = UserInputService:GetFocusedTextBox()
         if textBox then
-            local typed = textBox.Text:lower():gsub("[%s%c]+", "")
-            if #typed > 0 then
-                lastManualInput = typed
+            local isUIFrame = false
+            local checkParent = textBox
+            while checkParent do
+                if checkParent.Name == "UsedWordsFrame" or 
+                   checkParent.Name == "CustomWordsFrame" or 
+                   checkParent.Name == "WordBrowser" or 
+                   checkParent.Name == "ServerBrowser" or
+                   checkParent:IsA("TextBox") and (checkParent.PlaceholderText or checkParent.PlaceholderColor3) then
+                   isUIFrame = true
+                   break
+                end
+                checkParent = checkParent.parent
+            end
+
+            if not isUIFrame then
+                local typed = textBox.Text:lower():gsub("[%s%c]+", "")
+                if #typed > 0 then
+                    lastManualInput = typed
+                end
             end
         end
     end
