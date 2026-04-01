@@ -2631,44 +2631,23 @@ end
 
         local function sortGroup(t, forceShort)
             if forceShort then
-                -- Pre-compute length + small random offset for stable sorting
-                local scored = {}
-                for i, word in ipairs(t) do
-                    local baseLen = #word
-                    -- Add jitter that's consistent per word during this sort
-                    local jitter = math.random(-1, 1) / 2
-                    scored[i] = {word = word, score = baseLen + jitter}
-                end
-                table.sort(scored, function(a, b)
-                    if a.score == b.score then
-                        return math.random() > 0.5
-                    end
-                    return a.score < b.score
+                table.sort(t, function(a, b)
+                    local lenDiff = #a - #b
+                    if lenDiff == 0 then return math.random() > 0.5 end
+                    local jitter = math.random(-1, 1)
+                    return (lenDiff + jitter) < 0
                 end)
-                for i, entry in ipairs(scored) do
-                    t[i] = entry.word
-                end
             elseif sortMode == "Longest" then
                 table.sort(t, function(a, b) return #a > #b end)
             elseif sortMode == "Shortest" then
                 table.sort(t, function(a, b) return #a < #b end)
             elseif sortMode == "Random" then
-                -- Similar approach but with more jitter
-                local scored = {}
-                for i, word in ipairs(t) do
-                    local baseLen = #word
+                table.sort(t, function(a, b)
+                    local lenDiff = #a - #b
+                    if lenDiff == 0 then return math.random() > 0.5 end
                     local jitter = math.random(-2, 2)
-                    scored[i] = {word = word, score = baseLen + jitter}
-                end
-                table.sort(scored, function(a, b)
-                    if a.score == b.score then
-                        return math.random() > 0.5
-                    end
-                    return a.score < b.score
+                    return (lenDiff + jitter) < 0
                 end)
-                for i, entry in ipairs(scored) do
-                    t[i] = entry.word
-                end
             elseif sortMode == "Killer" then
                 table.sort(t, function(a, b)
                     local sA = GetKillerScore(a)
