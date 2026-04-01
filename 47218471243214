@@ -64,6 +64,7 @@ local Config = {
     MinTypeSpeed = 50,
     MaxTypeSpeed = 3000,
     KeyboardLayout = "QWERTY"
+    RandomJitter = true
 }
 
 local function SaveConfig()
@@ -91,6 +92,7 @@ local suffixMode = Config.SuffixMode or ""
 local lengthMode = Config.LengthMode or 0
 local autoPlay = Config.AutoPlay
 local autoJoin = Config.AutoJoin
+local randomJitter = Config.RandomJitter
 local panicMode = Config.PanicMode
 local showKeyboard = Config.ShowKeyboard
 local errorRate = Config.ErrorRate
@@ -1071,6 +1073,15 @@ end
 CreateCheckbox("1v1", UDim2.new(0, 15, 0, 88), "_1v1")
 CreateCheckbox("4 Player", UDim2.new(0, 110, 0, 88), "_4p")
 CreateCheckbox("8 Player", UDim2.new(0, 205, 0, 88), "_8p")
+
+local JitterBtn = CreateToggle("Random Jitter: "..(randomJitter and "ON" or "OFF"), UDim2.new(0, 150, 0, 61), function()
+    randomJitter = not randomJitter
+    Config.RandomJitter = randomJitter
+    forceUpdateList = true  -- Refresh the list immediately
+    return randomJitter, "Random Jitter: "..(randomJitter and "ON" or "OFF"), randomJitter and THEME.Success or Color3.fromRGB(255, 100, 100)
+end)
+JitterBtn.TextColor3 = randomJitter and THEME.Success or Color3.fromRGB(255, 100, 100)
+JitterBtn.Size = UDim2.new(0, 130, 0, 24)
 
 local BlatantBtn = CreateToggle("Blatant Mode: "..(isBlatant and "ON" or "OFF"), UDim2.new(0, 15, 0, 115), function()
     isBlatant = not isBlatant
@@ -2630,24 +2641,48 @@ end
         end
 
         local function sortGroup(t, forceShort)
-            if forceShort then
-                table.sort(t, function(a, b)
-                    local lenDiff = #a - #b
-                    if lenDiff == 0 then return math.random() > 0.5 end
-                    local jitter = math.random(-1, 1)
-                    return (lenDiff + jitter) < 0
+            if forceShort and randomJitter then  -- Only use jitter if toggle is ON
+                -- Pre-compute length + small random offset for stable sorting
+                local scored = {}
+                for i, word in ipairs(t) do
+                    local baseLen = #word
+                    -- Add jitter that's consistent per word during this sort
+                    local jitter = math.random(-1, 1) / 2
+                    scored[i] = {word = word, score = baseLen + jitter}
+                end
+                table.sort(scored, function(a, b)
+                    if a.score == b.score then
+                        return math.random() > 0.5
+                    end
+                    return a.score < b.score
                 end)
+                for i, entry in ipairs(scored) do
+                    t[i] = entry.word
+                end
+            elseif forceShort and not randomJitter then
+                -- Jitter OFF - sort purely by length
+                table.sort(t, function(a, b) return #a < #b end)
             elseif sortMode == "Longest" then
                 table.sort(t, function(a, b) return #a > #b end)
             elseif sortMode == "Shortest" then
                 table.sort(t, function(a, b) return #a < #b end)
             elseif sortMode == "Random" then
-                table.sort(t, function(a, b)
-                    local lenDiff = #a - #b
-                    if lenDiff == 0 then return math.random() > 0.5 end
+                -- Similar approach but with more jitter
+                local scored = {}
+                for i, word in ipairs(t) do
+                    local baseLen = #word
                     local jitter = math.random(-2, 2)
-                    return (lenDiff + jitter) < 0
+                    scored[i] = {word = word, score = baseLen + jitter}
+                end
+                table.sort(scored, function(a, b)
+                    if a.score == b.score then
+                        return math.random() > 0.5
+                    end
+                    return a.score < b.score
                 end)
+                for i, entry in ipairs(scored) do
+                    t[i] = entry.word
+                end
             elseif sortMode == "Killer" then
                 table.sort(t, function(a, b)
                     local sA = GetKillerScore(a)
