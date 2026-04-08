@@ -2458,6 +2458,7 @@ UpdateList = function(detectedText, requiredLetter)
     
     local function CollectMatches(prefix, tryFallbackLengths)
         local exacts = {}
+        local fallbackExacts = {}
         local partials = {}
         local maxPartialLen = 0
         
@@ -2481,10 +2482,13 @@ UpdateList = function(detectedText, requiredLetter)
                             suffixMatch = w:sub(-#suffixMode) == suffixMode
                         end
                     end
-                    if not suffixMatch then goto continue end
+                    if not suffixMatch then goto skip_custom end
                     
-                    local isLengthMatch = (not tryFallbackLengths and lengthMode > 0) and (#w == lengthMode) or true
-                    if not isLengthMatch then goto continue end
+                    local isLengthMatch = true
+                    if not tryFallbackLengths and lengthMode > 0 then
+                        isLengthMatch = (#w == lengthMode)
+                    end
+                    if not isLengthMatch then goto skip_custom end
                     
                     local mLen = GetMatchLength(w, prefix)
                     if mLen == #prefix then
@@ -2498,38 +2502,59 @@ UpdateList = function(detectedText, requiredLetter)
                         end
                     end
                 end
-                ::continue::
+                ::skip_custom::
             end
         end
         
-        -- PRIORITY 2: Check main word list but with LAZY LOADING (only check what's needed)
-        local wordsToCheck = bucket
-        local maxToCheck
+        -- Get the bucket (words starting with first letter)
+        local firstChar = prefix:sub(1,1)
+        if firstChar == "#" then firstChar = nil end
         
-        if suffixMode ~= "" or lengthMode > 0 then
-            -- For filtered searches, we need more words but we'll use binary search range
-            maxToCheck = 1500  -- Generous but not infinite
+        local bucket
+        if firstChar and firstChar ~= "" and Buckets then
+            bucket = Buckets[firstChar] or {}
         else
-            -- For normal searches, we can stop early
-            maxToCheck = 600
+            bucket = Words
         end
         
+        -- Determine search limits
+        local maxToCheck
+        local exactLimit
+        
+        if suffixMode ~= "" or lengthMode > 0 then
+            -- For filtered searches, we need to scan more
+            maxToCheck = 2000
+            exactLimit = 300
+        else
+            -- For normal searches, we can stop earlier
+            maxToCheck = 800
+            exactLimit = 100
+        end
+        
+        -- Find starting position using binary search
         local startIndex = 1
         if #prefix > 0 then
             startIndex = BinarySearchStart(bucket, prefix)
-            if startIndex == -1 then startIndex = 1 end
+            if startIndex == -1 then startIndex = 1
+            else
+                -- Move back a bit to catch any missed words
+                startIndex = math.max(1, startIndex - 5)
+            end
         end
         
         local checked = 0
+        local foundExactCount = #exacts
+        
         for i = startIndex, #bucket do
-            local w = wordsToCheck[i]
+            local w = bucket[i]
             
+            -- Stop if we've passed the prefix range
             if #prefix > 0 and w:sub(1, #prefix) ~= prefix then
-                if checked > 100 then break end  -- Only break if we've checked beyond the prefix range
+                if checked > 50 then break end
                 goto next_word
             end
             
-            -- Skip if already checked as custom word
+            -- Skip custom words (already checked)
             local isCustom = false
             if Config.CustomWords then
                 for _, cw in ipairs(Config.CustomWords) do
@@ -2539,7 +2564,7 @@ UpdateList = function(detectedText, requiredLetter)
             if isCustom then goto next_word end
             
             if not Blacklist[w] and not UsedWords[w] then
-                -- Apply filters
+                -- Apply suffix filter
                 local suffixMatch = true
                 if suffixMode ~= "" then
                     local suffixList = Config.SuffixModes
@@ -2557,12 +2582,17 @@ UpdateList = function(detectedText, requiredLetter)
                 end
                 if not suffixMatch then goto next_word end
                 
-                local isLengthMatch = (not tryFallbackLengths and lengthMode > 0) and (#w == lengthMode) or true
+                -- Apply length filter
+                local isLengthMatch = true
+                if not tryFallbackLengths and lengthMode > 0 then
+                    isLengthMatch = (#w == lengthMode)
+                end
                 if not isLengthMatch then goto next_word end
                 
                 local mLen = GetMatchLength(w, prefix)
                 if mLen == #prefix then
                     table.insert(exacts, w)
+                    foundExactCount = foundExactCount + 1
                 elseif #exacts == 0 then
                     if mLen > maxPartialLen then
                         maxPartialLen = mLen
@@ -2575,10 +2605,22 @@ UpdateList = function(detectedText, requiredLetter)
             
             ::next_word::
             checked = checked + 1
-            if checked >= maxToCheck and #exacts >= 30 then break end
+            
+            -- Early exit conditions
+            if foundExactCount >= exactLimit and checked >= 200 then
+                break
+            end
+            if checked >= maxToCheck then
+                break
+            end
         end
         
-        return exacts, partials, maxPartialLen
+        -- If no exact matches but we have partial matches
+        if #exacts == 0 and #partials > 0 then
+            return partials, {}, maxPartialLen
+        end
+        
+        return exacts, {}, maxPartialLen
     end
 
     local exacts, partials, pLen = CollectMatches(searchPrefix, false)
