@@ -2418,6 +2418,16 @@ local function BinarySearchStart(list, prefix)
 end
 
 UpdateList = function(detectedText, requiredLetter)
+    if suffixMode ~= "" and (not Config.SuffixModes or #Config.SuffixModes == 0) then
+        Config.SuffixModes = {}
+        for part in suffixMode:gmatch("[^,]+") do
+            local clean = part:gsub("[%s%c]+", "")
+            if #clean > 0 then
+                table.insert(Config.SuffixModes, clean)
+            end
+        end
+    end
+
     local hash = (detectedText or "") .. "|" .. (requiredLetter or "") .. "|" .. (SearchBox.Text or "") .. "|" .. suffixMode .. "|" .. tostring(lengthMode)
     if hash == lastUpdateHash and not forceUpdateList then return end
     lastUpdateHash = hash
@@ -2523,8 +2533,19 @@ UpdateList = function(detectedText, requiredLetter)
                         checkWord(w)
                         
                         count = count + 1
-                        local hardLimit = 800
-                        if #exacts >= 200 then break end
+
+                        local hardLimit
+                        local exactLimit
+
+                        if suffixMode ~= "" or lengthMode > 0 then
+                            hardLimit = 5000
+                            exactlimit = 500
+                        else
+                            hardLimit = 800
+                            exactlimit = 500
+                        end
+
+                        if #exacts >= exactLimit then break end
                         if count >= hardLimit then break end
 
                     end
