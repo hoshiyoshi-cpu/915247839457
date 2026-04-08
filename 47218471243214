@@ -82,6 +82,19 @@ local function LoadConfig()
 end
 LoadConfig()
 
+if not Config.SuffixModes then
+    Config.SuffixModes = {}
+end
+
+if Config.SuffixMode and Config.SuffixMode ~= "" and #Config.SuffixModes == 0 then
+    for part in Config.SuffixMode:gmatch("[^,]+") do
+        local clean = part:gsub("[%s%c]+", "")
+        if #clean > 0 then
+            table.insert(Config.SuffixModes, clean)
+        end
+    end
+end
+
 local currentCPM = Config.CPM
 local isBlatant = Config.Blatant
 local useHumanization = Config.Humanize
@@ -2524,15 +2537,12 @@ UpdateList = function(detectedText, requiredLetter)
                         
                         count = count + 1
 
-                        local hardLimit
-                        local exactLimit
+                        local hardLimit = 800
+                        local exactLimit = 500
 
                         if suffixMode ~= "" or lengthMode > 0 then
                             hardLimit = 5000
-                            exactlimit = 500
-                        else
-                            hardLimit = 800
-                            exactlimit = 500
+                            exactLimit = 500
                         end
 
                         if #exacts >= exactLimit then break end
