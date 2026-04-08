@@ -2541,7 +2541,7 @@ UpdateList = function(detectedText, requiredLetter)
                         local exactLimit = 500
 
                         if suffixMode ~= "" or lengthMode > 0 then
-                            hardLimit = 4000
+                            hardLimit = 3800
                             exactLimit = 500
                         end
 
