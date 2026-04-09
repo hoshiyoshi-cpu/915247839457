@@ -45,7 +45,7 @@ local Config = {
     Blatant = false,
     Humanize = true,
     FingerModel = true,
-    SortMode = "Random",
+    SortMode = "Shortest",
     SuffixMode = "",
     LengthMode = 0,
     AutoPlay = false,
@@ -81,6 +81,19 @@ local function LoadConfig()
     end
 end
 LoadConfig()
+
+if not Config.SuffixModes then
+    Config.SuffixModes = {}
+end
+
+if Config.SuffixMode and Config.SuffixMode ~= "" and #Config.SuffixModes == 0 then
+    for part in Config.SuffixMode:gmatch("[^,]+") do
+        local clean = part:gsub("[%s%c]+", "")
+        if #clean > 0 then
+            table.insert(Config.SuffixModes, clean)
+        end
+    end
+end
 
 local currentCPM = Config.CPM
 local isBlatant = Config.Blatant
@@ -987,13 +1000,15 @@ end)
 KeyboardBtn.TextColor3 = showKeyboard and THEME.Success or Color3.fromRGB(255, 100, 100)
 
 local SortBtn = CreateToggle("Sort: "..sortMode, UDim2.new(0, 15, 0, 33), function()
-    if sortMode == "Random" then sortMode = "Shortest"
-    elseif sortMode == "Shortest" then sortMode = "Longest"
-    elseif sortMode == "Longest" then sortMode = "Killer"
-    else sortMode = "Random" end
+    if sortMode == "Shortest" then 
+        sortMode = "Random"
+    else 
+        sortMode = "Shortest"
+    end
     
     Config.SortMode = sortMode
     lastDetected = "---"
+    forceUpdateList = true
     return true, "Sort: "..sortMode, THEME.Accent
 end)
 SortBtn.TextColor3 = THEME.Accent
@@ -1139,6 +1154,36 @@ UWClose.Position = UDim2.new(1, -40, 0, 0)
 UWClose.BackgroundTransparency = 1
 UWClose.MouseButton1Click:Connect(function() UsedWordsFrame.Visible = false end)
 
+-- Add this after the UWClose button definition
+local UWCopyBtn = Instance.new("TextButton", UsedWordsFrame)
+UWCopyBtn.Text = "Copy All"
+UWCopyBtn.Font = Enum.Font.GothamBold
+UWCopyBtn.TextSize = 13
+UWCopyBtn.TextColor3 = THEME.Accent
+UWCopyBtn.BackgroundColor3 = THEME.ItemBG
+UWCopyBtn.Size = UDim2.new(0, 80, 0, 28)
+UWCopyBtn.Position = UDim2.new(0, 10, 1, -38)
+Instance.new("UICorner", UWCopyBtn).CornerRadius = UDim.new(0, 6)
+
+UWCopyBtn.MouseButton1Click:Connect(function()
+    local lines = {}
+    for w, t in pairs(UsedWords) do
+        table.insert(lines, {word = w, time = t})
+    end
+    table.sort(lines, function(a, b) return a.time > b.time end)
+    local result = {}
+    for _, entry in ipairs(lines) do
+        table.insert(result, entry.word)
+    end
+    setclipboard(table.concat(result, "\n"))
+    UWCopyBtn.Text = "Copied!"
+    UWCopyBtn.TextColor3 = THEME.Success
+    task.delay(2, function()
+        UWCopyBtn.Text = "Copy All"
+        UWCopyBtn.TextColor3 = THEME.Accent
+    end)
+end)
+
 local UWSearchBox = Instance.new("TextBox", UsedWordsFrame)
 UWSearchBox.Font = Enum.Font.Gotham
 UWSearchBox.TextSize = 12
@@ -1163,7 +1208,7 @@ UWCountLabel.TextXAlignment = Enum.TextXAlignment.Left
 UWCountLabel.Text = "0 used, 0 blacklisted"
 
 local UWList = Instance.new("ScrollingFrame", UsedWordsFrame)
-UWList.Size = UDim2.new(1, -20, 1, -110)
+UWList.Size = UDim2.new(1, -20, 1, -150)
 UWList.Position = UDim2.new(0, 10, 0, 100)
 UWList.BackgroundTransparency = 1
 UWList.ScrollBarThickness = 3
@@ -2431,7 +2476,7 @@ UpdateList = function(detectedText, requiredLetter)
         local fallbackExacts = {}
         local partials = {}
         local maxPartialLen = 0
-        local limit = 100
+        local limit = 80
         
         if bucket then
             local checkWord = function(w)
@@ -2493,8 +2538,16 @@ UpdateList = function(detectedText, requiredLetter)
                         checkWord(w)
                         
                         count = count + 1
+
                         local hardLimit = 800
-                        if #exacts >= 200 then break end
+                        local exactLimit = 500
+
+                        if suffixMode ~= "" or lengthMode > 0 then
+                            hardLimit = 3800
+                            exactLimit = 500
+                        end
+
+                        if #exacts >= exactLimit then break end
                         if count >= hardLimit then break end
 
                     end
@@ -2554,7 +2607,7 @@ end
         table.sort(padding, function(a, b) return #a < #b end)
 
         for _, w in ipairs(padding) do
-            if #exacts >= 40 then break end
+            if #exacts >= 30 then break end
             table.insert(exacts, w)
         end
     end
@@ -2589,38 +2642,22 @@ end
     end
     
     if #matches > 0 then
-        -- >>> FIX: Sort filtered and padding separately to keep filtered on top <
-        local filteredCount = 0
-        for _, w in ipairs(matches) do
-            local function checkSuffix(w)
-                if suffixMode == "" then return true end
-                local suffixList = Config.SuffixModes
-                if suffixList and #suffixList > 1 then
-                    for _, s in ipairs(suffixList) do
-                        if w:sub(-#s) == s then return true end
-                    end
-                    return false
-                end
-                return w:sub(-#suffixMode) == suffixMode
-            end
-            local isFiltered = checkSuffix(w) and (lengthMode == 0 or #w == lengthMode)
-            if isFiltered then filteredCount = filteredCount + 1 end
-        end
-
         local filtered = {}
         local padding = {}
-        for _, w in ipairs(matches) do
-            local function checkSuffix(w)
-                if suffixMode == "" then return true end
-                local suffixList = Config.SuffixModes
-                if suffixList and #suffixList > 1 then
-                    for _, s in ipairs(suffixList) do
-                        if w:sub(-#s) == s then return true end
-                    end
-                    return false
+
+        local function checkSuffix(w)
+            if suffixMode == "" then return true end
+            local suffixList = Config.SuffixModes
+            if suffixList and #suffixList > 1 then
+                for _, s in ipairs(suffixList) do
+                    if w:sub(-#s) == s then return true end
                 end
-                return w:sub(-#suffixMode) == suffixMode
+                return false
             end
+            return w:sub(-#suffixMode) == suffixMode
+        end
+
+        for _, w in ipairs(matches) do
             local isFiltered = checkSuffix(w) and (lengthMode == 0 or #w == lengthMode)
             if isFiltered then
                 table.insert(filtered, w)
@@ -2628,26 +2665,53 @@ end
                 table.insert(padding, w)
             end
         end
-
-        local function sortGroup(t, forceShort)
-            if forceShort or (suffixMode ~= "" and sortMode == "Random") then
-                table.sort(t, function(a, b) return #a < #b end)
-            elseif sortMode == "Longest" then
-                table.sort(t, function(a, b) return #a > #b end)
-            elseif sortMode == "Shortest" or sortMode == "Random" then
-                table.sort(t, function(a, b) return #a < #b end)
-            elseif sortMode == "Killer" then
+        function ApplySort(t, mode)
+            if mode == "Shortest" then
                 table.sort(t, function(a, b)
-                    local sA = GetKillerScore(a)
-                    local sB = GetKillerScore(b)
-                    if sA == sB then return #a < #b end
-                    return sA > sB
+                    if #a ~= #b then return #a < #b end
+                    return a < b
                 end)
+            else
+                -- Random mode with length grouping (2-3 letter spread)
+                -- Group words by length ranges
+                local ranges = {}
+        
+                for _, word in ipairs(t) do
+                    local len = #word
+                    -- Group into buckets of 3: 1-3, 4-6, 7-9, 10-12, etc.
+                    local bucket = math.floor((len - 1) / 3)
+                    if not ranges[bucket] then ranges[bucket] = {} end
+                    table.insert(ranges[bucket], word)
+                end
+        
+                -- Shuffle within each range
+                for _, group in pairs(ranges) do
+                    for i = #group, 2, -1 do
+                        local j = math.random(i)
+                        group[i], group[j] = group[j], group[i]
+                    end
+                end
+        
+                -- Flatten ranges in order (all 1-3 length words first, then 4-6, etc.)
+                local result = {}
+                for bucket = 0, 20 do
+                    if ranges[bucket] then
+                        for _, word in ipairs(ranges[bucket]) do
+                            table.insert(result, word)
+                        end
+                    end
+                end
+        
+                -- Replace original table
+                for i = #t, 1, -1 do t[i] = nil end
+                for i, word in ipairs(result) do
+                    t[i] = word
+                end
             end
         end
 
-        sortGroup(filtered, true)
-        sortGroup(padding, true)
+        ApplySort(filtered, sortMode)
+        ApplySort(padding, sortMode)
 
         matches = {}
         for _, w in ipairs(filtered) do table.insert(matches, w) end
