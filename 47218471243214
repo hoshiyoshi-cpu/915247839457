@@ -3146,7 +3146,9 @@ runConn = RunService.Heartbeat:Connect(function()
                 StatusText.TextColor3 = THEME.SubText
                 Tween(StatusDot, {BackgroundColor3 = THEME.SubText})
                 
-                UpdateList("", requiredLetter)
+                task.spawn(function()
+                    UpdateList("", requiredLetter)
+                end)
                 listUpdatePending = false
                 
                 local visCount = 0
@@ -3189,6 +3191,13 @@ runConn = RunService.Heartbeat:Connect(function()
                     listUpdatePending = true
                     lastInputTime = now
                 end
+
+                task.spawn(function()
+                    if listUpdatePending then
+                        listUpdatePending = false
+                        UpdateList(detected, requiredLetter)
+                    end
+                end)
             end
         end
 
