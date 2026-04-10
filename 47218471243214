@@ -314,6 +314,31 @@ local function getDistance(s1, s2)
     return matrix[#s1][#s2]
 end
 
+-- Add this function
+local function IsValidWord(word)
+    -- Check if word exists in the main dictionary
+    local c = word:sub(1,1)
+    if c == "" then return false end
+    
+    local bucket = Buckets[c]
+    if not bucket then return false end
+    
+    -- Binary search for exact match
+    local left, right = 1, #bucket
+    while left <= right do
+        local mid = math.floor((left + right) / 2)
+        local testWord = bucket[mid]
+        if testWord == word then
+            return true
+        elseif testWord < word then
+            left = mid + 1
+        else
+            right = mid - 1
+        end
+    end
+    return false
+end
+
 local function Tween(obj, props, time)
     TweenService:Create(obj, TweenInfo.new(time or 0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props):Play()
 end
@@ -2665,7 +2690,7 @@ end
                 table.insert(padding, w)
             end
         end
-        function ApplySort(t, mode)
+        function ApplySort(t, mode, requiredLetter)
             if mode == "Shortest" then
                 table.sort(t, function(a, b)
                     if #a ~= #b then return #a < #b end
@@ -2674,8 +2699,8 @@ end
             else
                 -- Get the game prefix letter for the exception rule
                 local gamePrefix = ""
-                if lastRequiredLetter and #lastRequiredLetter > 0 then
-                    gamePrefix = lastRequiredLetter:sub(1,1):lower()
+                if requiredLetter and #requiredLetter > 0 then
+                    gamePrefix = requiredLetter:sub(1,1):lower()
                 end
 
                 -- Check if a word should be deprioritized because its matching suffix is a standalone word
@@ -2748,8 +2773,8 @@ end
             end
         end
 
-        ApplySort(filtered, sortMode)
-        ApplySort(padding, sortMode)
+        ApplySort(filtered, sortMode, requiredLetter)
+        ApplySort(padding, sortMode, requiredLetter)
 
         matches = {}
         for _, w in ipairs(filtered) do table.insert(matches, w) end
