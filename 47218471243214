@@ -2645,6 +2645,26 @@ end
         local filtered = {}
         local padding = {}
 
+        local function checkSuffix(w)
+            if suffixMode == "" then return true end
+            local suffixList = Config.SuffixModes
+            if suffixList and #suffixList > 1 then
+                for _, s in ipairs(suffixList) do
+                    if w:sub(-#s) == s then return true end
+                end
+                return false
+            end
+            return w:sub(-#suffixMode) == suffixMode
+        end
+
+        for _, w in ipairs(matches) do
+            local isFiltered = checkSuffix(w) and (lengthMode == 0 or #w == lengthMode)
+            if isFiltered then
+                table.insert(filtered, w)
+            else
+                table.insert(padding, w)
+            end
+        end
         function ApplySort(t, mode)
             if mode == "Shortest" then
                 table.sort(t, function(a, b)
