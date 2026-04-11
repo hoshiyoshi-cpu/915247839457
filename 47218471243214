@@ -220,23 +220,7 @@ local function FetchWords()
     task.wait(0.5)
 end
 
-local DeprioritizedPrefixes = {}
-
 FetchWords()
-
-task.spawn(function()
-    local ok, res = pcall(function()
-        return request({Url = "https://raw.githubusercontent.com/hoshiyoshi-cpu/915247839457/refs/heads/main/depr.txt", Method = "GET"})
-    end)
-    if ok and res and res.Body then
-        for line in res.Body:gmatch("[^\r\n]+") do
-            local clean = line:gsub("[%s%c]+", ""):lower()
-            if #clean > 0 then
-                DeprioritizedPrefixes[clean] = true
-            end
-        end
-    end
-end)
 
 local Words = {}
 local SeenWords = {}
@@ -306,24 +290,6 @@ local HardLetterScores = {
 local function GetKillerScore(word)
     local lastChar = word:sub(-1)
     return HardLetterScores[lastChar] or 0
-end
-
-local function IsDeprioritized(word, currentPrefix)
-    -- currentPrefix = the letters typed so far / required letters from game
-    for deprPrefix, _ in pairs(DeprioritizedPrefixes) do
-        if word:sub(1, #deprPrefix) == deprPrefix then
-            -- Word starts with a depr prefix
-            -- Check if the current game prefix overlaps with start of depr prefix
-            -- e.g. deprPrefix = "able", currentPrefix = "a" or "ab" -> full priority
-            local cp = (currentPrefix or ""):lower()
-            if #cp > 0 and deprPrefix:sub(1, #cp) == cp then
-                -- Game is asking for something that starts with this depr prefix's beginning
-                return false -- full priority, NOT deprioritized
-            end
-            return true -- deprioritized
-        end
-    end
-    return false
 end
 
 local function getDistance(s1, s2)
@@ -2699,68 +2665,49 @@ end
                 table.insert(padding, w)
             end
         end
-        
         function ApplySort(t, mode)
-            -- Build depr lookup for this sort call using current required letter
-            local cp = (requiredLetter or ""):lower()
-            local normal, depr = {}, {}
-            for _, word in ipairs(t) do
-                local isDepr = false
-                for dp, _ in pairs(DeprioritizedPrefixes) do
-                    if word:sub(1, #dp) == dp then
-                        -- only deprioritize if game prefix does NOT match start of depr prefix
-                        if #cp == 0 or dp:sub(1, #cp) ~= cp then
-                            isDepr = true
-                        end
-                        break
+            if mode == "Shortest" then
+                table.sort(t, function(a, b)
+                    if #a ~= #b then return #a < #b end
+                    return a < b
+                end)
+            else
+                -- Random mode with length grouping (2-3 letter spread)
+                -- Group words by length ranges
+                local ranges = {}
+        
+                for _, word in ipairs(t) do
+                    local len = #word
+                    -- Group into buckets of 3: 1-3, 4-6, 7-9, 10-12, etc.
+                    local bucket = math.floor((len - 1) / 3)
+                    if not ranges[bucket] then ranges[bucket] = {} end
+                    table.insert(ranges[bucket], word)
+                end
+        
+                -- Shuffle within each range
+                for _, group in pairs(ranges) do
+                    for i = #group, 2, -1 do
+                        local j = math.random(i)
+                        group[i], group[j] = group[j], group[i]
                     end
                 end
-                if isDepr then
-                    table.insert(depr, word)
-                else
-                    table.insert(normal, word)
+        
+                -- Flatten ranges in order (all 1-3 length words first, then 4-6, etc.)
+                local result = {}
+                for bucket = 0, 20 do
+                    if ranges[bucket] then
+                        for _, word in ipairs(ranges[bucket]) do
+                            table.insert(result, word)
+                        end
+                    end
                 end
-            end
-
-            local function sortGroup(g)
-                if mode == "Shortest" then
-                    table.sort(g, function(a, b)
-                        if #a ~= #b then return #a < #b end
-                        return a < b
-                    end)
-                else
-                    local ranges = {}
-                    for _, word in ipairs(g) do
-                        local len = #word
-                        local bkt = math.floor((len - 1) / 3)
-                        if not ranges[bkt] then ranges[bkt] = {} end
-                        table.insert(ranges[bkt], word)
-                    end
-                    for _, group in pairs(ranges) do
-                        for i = #group, 2, -1 do
-                            local j = math.random(i)
-                            group[i], group[j] = group[j], group[i]
-                        end
-                    end
-                    local result = {}
-                    for bkt = 0, 20 do
-                        if ranges[bkt] then
-                            for _, word in ipairs(ranges[bkt]) do
-                                table.insert(result, word)
-                            end
-                        end
-                    end
-                    for i = #g, 1, -1 do g[i] = nil end
-                    for i, word in ipairs(result) do g[i] = word end
+        
+                -- Replace original table
+                for i = #t, 1, -1 do t[i] = nil end
+                for i, word in ipairs(result) do
+                    t[i] = word
                 end
             end
-
-            sortGroup(normal)
-            sortGroup(depr)
-
-            for i = #t, 1, -1 do t[i] = nil end
-            for _, word in ipairs(normal) do table.insert(t, word) end
-            for _, word in ipairs(depr) do table.insert(t, word) end
         end
 
         ApplySort(filtered, sortMode)
