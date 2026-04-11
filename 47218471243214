@@ -141,7 +141,6 @@ local ButtonData = {}
 local JoinDebounce = {}
 local thinkDelayMin = 0.4
 local thinkDelayMax = 1.2
-local lastRequiredLetter = ""
 
 local listUpdatePending = false
 local forceUpdateList = false
@@ -225,6 +224,8 @@ FetchWords()
 
 local DeprioritizedPrefixes = {}
 
+local DeprioritizedPrefixes = {}
+
 local function FetchDeprPrefixes()
     local ok, res = pcall(function()
         return request({Url = "https://raw.githubusercontent.com/hoshiyoshi-cpu/915247839457/refs/heads/main/depr.txt", Method = "GET"})
@@ -239,7 +240,8 @@ local function FetchDeprPrefixes()
     end
 end
 
-FetchDeprPrefixes()
+FetchWords()
+FetchDeprPrefixes()  -- add this line right after FetchWords()
 
 local Words = {}
 local SeenWords = {}
@@ -2703,59 +2705,66 @@ end
             end
         end
         function ApplySort(t, mode)
-            local currentPrefix = (lastRequiredLetter or ""):lower()
-
-            -- Split into normal and deprioritized
-            local normal = {}
-            local deprWords = {}
+            -- Build depr lookup for this sort call using current required letter
+            local cp = (requiredLetter or ""):lower()
+            local normal, depr = {}, {}
             for _, word in ipairs(t) do
-                if IsDeprioritized(word, currentPrefix) then
-                    table.insert(deprWords, word)
+                local isDepr = false
+                for dp, _ in pairs(DeprioritizedPrefixes) do
+                    if word:sub(1, #dp) == dp then
+                        -- only deprioritize if game prefix does NOT match start of depr prefix
+                        if #cp == 0 or dp:sub(1, #cp) ~= cp then
+                            isDepr = true
+                        end
+                        break
+                    end
+                end
+                if isDepr then
+                    table.insert(depr, word)
                 else
                     table.insert(normal, word)
                 end
             end
 
-            local function sortGroup(group)
+            local function sortGroup(g)
                 if mode == "Shortest" then
-                    table.sort(group, function(a, b)
+                    table.sort(g, function(a, b)
                         if #a ~= #b then return #a < #b end
                         return a < b
                     end)
                 else
                     local ranges = {}
-                    for _, word in ipairs(group) do
+                    for _, word in ipairs(g) do
                         local len = #word
-                        local bucket = math.floor((len - 1) / 3)
-                        if not ranges[bucket] then ranges[bucket] = {} end
-                        table.insert(ranges[bucket], word)
+                        local bkt = math.floor((len - 1) / 3)
+                        if not ranges[bkt] then ranges[bkt] = {} end
+                        table.insert(ranges[bkt], word)
                     end
-                    for _, g in pairs(ranges) do
-                        for i = #g, 2, -1 do
+                    for _, group in pairs(ranges) do
+                        for i = #group, 2, -1 do
                             local j = math.random(i)
-                            g[i], g[j] = g[j], g[i]
+                            group[i], group[j] = group[j], group[i]
                         end
                     end
                     local result = {}
-                    for b = 0, 20 do
-                        if ranges[b] then
-                            for _, word in ipairs(ranges[b]) do
+                    for bkt = 0, 20 do
+                        if ranges[bkt] then
+                            for _, word in ipairs(ranges[bkt]) do
                                 table.insert(result, word)
                             end
                         end
                     end
-                    for i = #group, 1, -1 do group[i] = nil end
-                    for i, word in ipairs(result) do group[i] = word end
+                    for i = #g, 1, -1 do g[i] = nil end
+                    for i, word in ipairs(result) do g[i] = word end
                 end
             end
 
             sortGroup(normal)
-            sortGroup(deprWords)
+            sortGroup(depr)
 
-            -- Rebuild t: normal first, depr last
             for i = #t, 1, -1 do t[i] = nil end
             for _, word in ipairs(normal) do table.insert(t, word) end
-            for _, word in ipairs(deprWords) do table.insert(t, word) end
+            for _, word in ipairs(depr) do table.insert(t, word) end
         end
 
         ApplySort(filtered, sortMode)
