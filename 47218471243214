@@ -220,13 +220,11 @@ local function FetchWords()
     task.wait(0.5)
 end
 
+local DeprioritizedPrefixes = {}
+
 FetchWords()
 
-local DeprioritizedPrefixes = {}
-
-local DeprioritizedPrefixes = {}
-
-local function FetchDeprPrefixes()
+task.spawn(function()
     local ok, res = pcall(function()
         return request({Url = "https://raw.githubusercontent.com/hoshiyoshi-cpu/915247839457/refs/heads/main/depr.txt", Method = "GET"})
     end)
@@ -238,10 +236,7 @@ local function FetchDeprPrefixes()
             end
         end
     end
-end
-
-FetchWords()
-FetchDeprPrefixes()  -- add this line right after FetchWords()
+end)
 
 local Words = {}
 local SeenWords = {}
@@ -2704,6 +2699,7 @@ end
                 table.insert(padding, w)
             end
         end
+        
         function ApplySort(t, mode)
             -- Build depr lookup for this sort call using current required letter
             local cp = (requiredLetter or ""):lower()
