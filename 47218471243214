@@ -141,6 +141,7 @@ local ButtonData = {}
 local JoinDebounce = {}
 local thinkDelayMin = 0.4
 local thinkDelayMax = 1.2
+local lastRequiredLetter = ""
 
 local listUpdatePending = false
 local forceUpdateList = false
