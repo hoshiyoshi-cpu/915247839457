@@ -1359,115 +1359,128 @@ end
       Result: roughly random but nearby lengths cluster together.
 ]]
 
-local function GetSuffixPriority(word, suffixList)
-    if not suffixList or #suffixList == 0 then return 999 end
-    local best = 999
-    for idx, s in ipairs(suffixList) do
-        if #word >= #s and word:sub(-#s) == s then
-            if idx < best then best = idx end
+local function HasMatchingSuffix(word, suffixGroups)
+    -- Check if word matches ANY suffix in ANY tier
+    if not suffixGroups or #suffixGroups == 0 then return false end
+    
+    for _, tierSuffixes in ipairs(suffixGroups) do
+        for _, s in ipairs(tierSuffixes) do
+            if #word >= #s and word:sub(-#s) == s then
+                return true
+            end
         end
     end
-    return best
+    return false
+end
+
+local function GetSuffixPriorityTier(word, suffixGroups)
+    -- Returns tier index (1,2,3...) or 999 for no match
+    if not suffixGroups or #suffixGroups == 0 then return 999 end
+    
+    for tierIdx, tierSuffixes in ipairs(suffixGroups) do
+        for _, s in ipairs(tierSuffixes) do
+            if #word >= #s and word:sub(-#s) == s then
+                return tierIdx
+            end
+        end
+    end
+    return 999
+end
+
+local function ShuffleTable(t)
+    for i = #t, 2, -1 do
+        local j = math.random(i)
+        t[i], t[j] = t[j], t[i]
+    end
+    return t
 end
 
 local function ApplySort(t, mode)
-    local suffixList = Config.SuffixModes or {}
+    -- Build suffix groups from Config.SuffixModes
+    local suffixGroups = {}
+    local allSuffixes = Config.SuffixModes or {}
     
-    -- Create a unique key for this word pool
-    local poolKey = ""
-    if mode == "Random" then
+    -- Group suffixes into tiers of 3
+    for i = 1, #allSuffixes, 3 do
+        local tier = {}
+        for j = i, math.min(i + 2, #allSuffixes) do
+            table.insert(tier, allSuffixes[j])
+        end
+        table.insert(suffixGroups, tier)
+    end
+    
+    if mode == "Shortest" then
+        -- SHORTEST MODE: Split into "has suffix" and "no suffix"
+        local withSuffix = {}
+        local withoutSuffix = {}
+        
         for _, w in ipairs(t) do
-            poolKey = poolKey .. w .. "|"
-        end
-        poolKey = poolKey .. suffixMode .. "|" .. tostring(lengthMode)
-        
-        -- If same pool as before, use cached order
-        if poolKey == lastWordPoolKey and cachedRandomWords[1] then
-            for i = #t, 1, -1 do t[i] = nil end
-            for i, w in ipairs(cachedRandomWords) do
-                t[i] = w
+            if HasMatchingSuffix(w, suffixGroups) then
+                table.insert(withSuffix, w)
+            else
+                table.insert(withoutSuffix, w)
             end
-            return
         end
         
-        -- New pool, clear cache and store new key
-        lastWordPoolKey = poolKey
-    end
-    
-    -- Rest of your existing grouping and sorting logic...
-    local groups = {}
-    local priorityOrder = {}
+        -- Sort all suffix-matching words by length (shortest to longest)
+        table.sort(withSuffix, function(a, b)
+            if #a ~= #b then return #a < #b end
+            return a < b
+        end)
+        
+        -- Sort non-matching words by length
+        table.sort(withoutSuffix, function(a, b)
+            if #a ~= #b then return #a < #b end
+            return a < b
+        end)
+        
+        -- Combine: all suffix words first (sorted by length), then non-suffix words
+        local result = {}
+        for _, w in ipairs(withSuffix) do table.insert(result, w) end
+        for _, w in ipairs(withoutSuffix) do table.insert(result, w) end
+        
+        -- Write back into t
+        for i = #t, 1, -1 do t[i] = nil end
+        for i, w in ipairs(result) do t[i] = w end
+        
+    else
+        -- RANDOM MODE: Preserve tiers, shuffle within each tier
+        local groups = {}
+        local priorityOrder = {}
 
-    for _, w in ipairs(t) do
-        local p = GetSuffixPriority(w, suffixList)
-        if not groups[p] then
-            groups[p] = {}
-            table.insert(priorityOrder, p)
+        for _, w in ipairs(t) do
+            local p = GetSuffixPriorityTier(w, suffixGroups)
+            if not groups[p] then
+                groups[p] = {}
+                table.insert(priorityOrder, p)
+            end
+            table.insert(groups[p], w)
         end
-        table.insert(groups[p], w)
-    end
 
-    local seen = {}
-    local cleanOrder = {}
-    for _, p in ipairs(priorityOrder) do
-        if not seen[p] then
-            seen[p] = true
-            table.insert(cleanOrder, p)
+        -- Remove duplicates and sort priority order
+        local seen = {}
+        local cleanOrder = {}
+        for _, p in ipairs(priorityOrder) do
+            if not seen[p] then
+                seen[p] = true
+                table.insert(cleanOrder, p)
+            end
         end
-    end
-    table.sort(cleanOrder)
+        table.sort(cleanOrder)
 
-    local result = {}
-
-    for _, p in ipairs(cleanOrder) do
-        local group = groups[p]
-
-        if mode == "Shortest" then
-            table.sort(group, function(a, b)
-                if #a ~= #b then return #a < #b end
-                return a < b
-            end)
+        local result = {}
+        
+        for _, p in ipairs(cleanOrder) do
+            local group = groups[p]
+            ShuffleTable(group)
             for _, w in ipairs(group) do
                 table.insert(result, w)
             end
-        else
-            -- RANDOM mode
-            -- First sort by length
-            table.sort(group, function(a, b)
-                if #a ~= #b then return #a < #b end
-                return a < b
-            end)
-
-            -- Chunk into groups of 3 and shuffle each chunk
-            local i = 1
-            while i <= #group do
-                local chunk = {}
-                for j = i, math.min(i + 2, #group) do
-                    table.insert(chunk, group[j])
-                end
-                -- Shuffle this chunk
-                for k = #chunk, 2, -1 do
-                    local r = math.random(k)
-                    chunk[k], chunk[r] = chunk[r], chunk[k]
-                end
-                for _, w in ipairs(chunk) do
-                    table.insert(result, w)
-                end
-                i = i + 3
-            end
         end
-    end
 
-    -- Write back into t
-    for i = #t, 1, -1 do t[i] = nil end
-    for i, w in ipairs(result) do t[i] = w end
-    
-    -- Cache the result for random mode
-    if mode == "Random" then
-        cachedRandomWords = {}
-        for i, w in ipairs(t) do
-            cachedRandomWords[i] = w
-        end
+        -- Write back into t
+        for i = #t, 1, -1 do t[i] = nil end
+        for i, w in ipairs(result) do t[i] = w end
     end
 end
 
