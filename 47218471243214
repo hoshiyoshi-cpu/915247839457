@@ -1583,7 +1583,7 @@ UpdateList = function(detectedText, requiredLetter)
         local exacts = {}
         local partials = {}
         local maxPartialLen = 0
-        local MAX_RESULTS = 100  -- Set your limit here
+        local MAX_RESULTS = 300  -- Set your limit here
         
         local function checkWord(w)
             if Blacklist[w] or UsedWords[w] then return end
